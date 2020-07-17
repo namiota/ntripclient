@@ -168,7 +168,11 @@ __attribute__((__unused__))
     newtermios.c_cflag |= CRTSCTS;
   else
     newtermios.c_cflag |= Protocol;
-  newtermios.c_cc[VMIN] = 1;
+
+  /* to get fully non-blocking functionality and enable serial restart */
+  newtermios.c_cc[VMIN] = 0;
+  newtermios.c_cc[VTIME] = 0;
+  
   tcflush(sn->Stream, TCIOFLUSH);
   tcsetattr(sn->Stream, TCSANOW, &newtermios);
   tcflush(sn->Stream, TCIOFLUSH);

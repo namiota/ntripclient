@@ -29,6 +29,15 @@
 
 #include "serial.c"
 
+/* libs needed to build with arm-gcc */
+#include <fcntl.h>
+#include <unistd.h>
+#include <arpa/inet.h>
+#include <sys/select.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <netdb.h>
+
 #ifdef WINDOWSVERSION
   #include <winsock.h>
   typedef SOCKET sockettype;
@@ -564,9 +573,12 @@ static int encode(char *buf, int size, const char *user, const char *pwd)
   return bytes;
 }
 
+
+
 int main(int argc, char **argv)
 {
   struct Args args;
+  time_t lasttime, nowtime;
 
   setbuf(stdout, 0);
   setbuf(stdin, 0);
@@ -601,6 +613,7 @@ int main(int argc, char **argv)
         fprintf(stderr, "%s\n", e);
         return 20;
       }
+      lasttime = time(NULL);
       if(args.serlogfile)
       {
         if(!(ser = fopen(args.serlogfile, "a+")))
@@ -1638,6 +1651,26 @@ int main(int argc, char **argv)
                 }
                 if(args.serdevice && !stop)
                 {
+                  // Restart RS every 60 secs
+                  nowtime = time(NULL);
+                  if ((nowtime - lasttime) > 60)
+                  {
+                    fprintf(stdout, "Restarting RS...\n");
+                    tcflush(sx.Stream, TCIOFLUSH);
+                    SerialFree(&sx);
+                    const char *e = SerialInit(&sx, args.serdevice, args.baud,
+                    args.stopbits, args.protocol, args.parity, args.databits, 1);
+                    if(e)
+                    {
+                      fprintf(stderr, "%s\n", e);
+                      fflush(stdout);
+                      return 20;
+                    }
+                    tcflush(sx.Stream, TCIOFLUSH);
+                    fprintf(stdout, "RS restarted successfully!\n");
+                    lasttime = nowtime;
+                  }
+
                   int doloop = 1;
                   while(doloop && !stop)
                   {
@@ -1658,15 +1691,17 @@ int main(int argc, char **argv)
                       {
                         if(nmeabufpos < 6)
                         {
-                          if(nmeabuffer[nmeabufpos] != buf[j])
-                          {
-                            if(nmeabufpos) nmeabufpos = 0;
-                            else ++j;
-                          }
-                          else
+                          //$G*GGA, * == P or N
+                          if(( (nmeabufpos == 2) && ((buf[j] == 'P') || (buf[j] == 'N')) )
+                            || (nmeabuffer[nmeabufpos] == buf[j]))
                           {
                             nmeastarpos = 0;
                             ++j; ++nmeabufpos;
+                          }
+                          else
+                          {
+                            if(nmeabufpos) nmeabufpos = 0;
+                            else ++j;
                           }
                         }
                         else if((nmeastarpos && nmeabufpos == nmeastarpos + 3)
